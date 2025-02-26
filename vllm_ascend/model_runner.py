@@ -721,7 +721,7 @@ class ModelInputForNPUBuilder(ModelRunnerInputBuilderBase[ModelInputForNPU]):
                 mrope_input_positions, mrope_position_delta = \
                     MRotaryEmbedding.get_input_positions(
                         token_ids,
-                        hf_config
+                        hf_config,
                         image_grid_thw=image_grid_thw,
                         video_grid_thw=video_grid_thw,
                         second_per_grid_ts=None,
