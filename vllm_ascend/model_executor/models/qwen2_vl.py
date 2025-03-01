@@ -29,7 +29,6 @@ def qwen2_vl_vision_attention_forward(
     x, _ = self.qkv(x)
     q, k, v = self.split_qkv(x)
     batch_size = q.shape[1]
-    seq_length = q.shape[0]
 
     q, k, v = [
         rearrange(x, "s b ... -> b s ...").contiguous()
