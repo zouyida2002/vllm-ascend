@@ -1,32 +1,42 @@
-# Copyright (c) Huawei Technologies Co., Ltd. 2024-2025. All rights reserved.
-
-"""
-MindIE is licensed under Mulan PSL v2.
-You can use this software according to the terms and conditions of the Mulan PSL v2.
-You may obtain a copy of Mulan PSL v2 at:
-         http://license.coscl.org.cn/MulanPSL2
-THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND,
-EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
-MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
-See the Mulan PSL v2 for more details.
-"""
+#
+# Copyright (c) 2025 Huawei Technologies Co., Ltd. All Rights Reserved.
+# Adapted from vllm/model_executor/models/qwen2_vl.py
+# Copyright 2023 The vLLM team.
+# 
+# This file is a part of the vllm-ascend project.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
 
 import torch
 import torch_npu
 from einops import rearrange
 
 from vllm.model_executor.models.qwen2_vl import apply_rotary_pos_emb_vision
-from vllm.model_executor.models.qwen2_vl import Qwen2VisionAttention,Qwen2VisionTransformer
+from vllm.model_executor.models.qwen2_vl import Qwen2VisionAttention, Qwen2VisionTransformer
 
 
 def qwen2_vl_vision_attention_forward(
         self,
         x: torch.Tensor,
         cu_seqlens: torch.Tensor,
-        rotary_pos_emb: torch.Tensor = None,
+        rotary_pos_emb: torch.Tensor,
     ) -> torch.Tensor:
 
+    # [s, b, c] --> [s, b, 3 * head * head_dim]
     x, _ = self.qkv(x)
+
+    # [s, b, 3 * head * head_dim] -> 3 * [s, b, head, head_dim]
     q, k, v = self.split_qkv(x)
     batch_size = q.shape[1]
 
@@ -45,6 +55,8 @@ def qwen2_vl_vision_attention_forward(
     ]
 
     context_layer = torch.torch.empty_like(q)
+
+    # this requires pta version >= B033
     torch_npu._npu_flash_attention_unpad(query=q, key=k, value=v,
                                         seq_len=cu_seqlens,
                                         scale_value=self.hidden_size_per_attention_head ** -0.5,
@@ -68,6 +80,7 @@ def qwen2_vl_vision_transformer_forward(
     x = self.patch_embed(x)
     rotary_pos_emb = self.rot_pos_emb(grid_thw)
 
+    #do not cumsum cu_seqlens to meet the requirements of unpadFA.
     cu_seqlens = torch.repeat_interleave(grid_thw[:, 1] * grid_thw[:, 2],
                                          grid_thw[:, 0]).cpu().to(torch.int32)
 
