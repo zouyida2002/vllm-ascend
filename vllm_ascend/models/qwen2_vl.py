@@ -19,6 +19,7 @@
 #
 
 import torch
+
 import torch_npu
 from einops import rearrange
 
