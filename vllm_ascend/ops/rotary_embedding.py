@@ -19,7 +19,7 @@ from typing import Optional, Tuple
 
 import torch
 from vllm.model_executor.layers.rotary_embedding import (
-    DeepseekScalingRotaryEmbedding, RotaryEmbedding)
+    DeepseekScalingRotaryEmbedding, RotaryEmbedding, MRotaryEmbedding)
 
 
 def rope_forward_oot(
@@ -88,5 +88,34 @@ def rope_deepseek_forward_oot(
     return query, key
 
 
+def mrope_forward_oot(
+    self,
+    positions: torch.Tensor,
+    query: torch.Tensor,
+    key: torch.Tensor,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """PyTorch-native implementation equivalent to forward().
+
+    Args:
+        positions:
+            [num_tokens,] (text only) or
+            [3, num_tokens] (T/H/W positions with multimodal inputs)
+        query: [num_tokens, num_heads * head_size]
+        key: [num_tokens, num_kv_heads * head_size]
+    """
+    import torch_npu
+
+    if positions.ndim == 1:
+        self.mrope_section = [0, 0, 0]
+    query, key = torch_npu.npu_mrope(positions,
+                                     query,
+                                     key,
+                                     self.cos_sin_cache,
+                                     self.head_size,
+                                     mrope_section=self.mrope_section,
+                                     rotary_mode='half')
+
+
 RotaryEmbedding.forward_oot = rope_forward_oot
 DeepseekScalingRotaryEmbedding.forward = rope_deepseek_forward_oot
+MRotaryEmbedding.forward = mrope_forward_oot

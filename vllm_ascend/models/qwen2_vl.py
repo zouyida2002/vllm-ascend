@@ -77,8 +77,20 @@ class CustomQwen2VisionAttention(Qwen2VisionAttention):
             rearrange(x, "s b ... -> b s ...").contiguous() for x in (q, k, v)
         ]
         if rotary_pos_emb is not None:
-            q = apply_rotary_pos_emb_vision(q, rotary_pos_emb)
-            k = apply_rotary_pos_emb_vision(k, rotary_pos_emb)
+            cos = rotary_pos_emb.cos() # [seqlen, rotary_dim / 2]
+            sin = rotary_pos_emb.sin()
+            interleaved = False
+            if not interleaved:
+                cos_new = torch.cat((cos, cos), dim=-1)
+                sin_new = torch.cat((sin, sin), dim=-1)
+            else:
+                cos_new = rearrange(torch.stack((cos,cos), dim=-1), "... d two -> ...(d two)", two=2)
+                sin_new = rearrange(torch.stack((sin,sin), dim=-1), "... d two -> ...(d two)", two=2)
+            cos_new = cos_new.reshape(1,self.cu_seqlens,1,self.hidden_size_per_attention_head)
+            sin_new = sin_new.reshape(1,self.cu_seqlens,1,self.hidden_size_per_attention_head)
+            q = torch_npu.npu_rotary_mul(q, cos_new, sin_new)
+            k = torch_npu.npu_rotary_mul(k, cos_new, sin_new)
+
         q, k, v = [
             rearrange(x, "b s h d -> (b s) h d").contiguous()
             for x in (q, k, v)
