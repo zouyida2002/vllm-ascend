@@ -56,6 +56,37 @@ class CustomQwen2VisionAttention(Qwen2VisionAttention):
             prefix,
         )
         self.cu_seqlens = None
+        self.embed_dim = embed_dim
+
+    def pad_bias(self, bias):
+
+        first_half = bias.reshape(self.num_attention_heads_per_partition, 3, 80)[:, :, :40]
+        second_half = bias.reshape(self.num_attention_heads_per_partition, 3, 80)[:, :, 40:]
+        first_half_padded = torch.nn.functional.pad(first_half, (0, 24))
+        second_half_padded = torch.nn.functional.pad(second_half, (0, 24))
+        bias_padded = torch.cat([first_half_padded, second_half_padded], dim=2)
+        bias_final = bias_padded.reshape(self.num_attention_heads_per_partition * 128 * 3)
+        return bias_final
+
+    def pad_linear(self):
+
+        self.qkv.update = True
+        self.hidden_size_per_attention_head = 128
+        qkv_weight_first_half = self.qkv.weight.data.reshape(self.num_attention_heads_per_partition, 3, 80, self.embed_dim)[:, :, :40, :]
+        qkv_weight_second_half = self.qkv.weight.data.reshape(self.num_attention_heads_per_partition, 3, 80, self.embed_dim)[:, :, 40:, :]
+
+        qkv_weight_first_half_padded = torch.nn.functional.pad(qkv_weight_first_half, (0, 0, 0, 24))
+        qkv_weight_second_half_padded = torch.nn.functional.pad(qkv_weight_second_half, (0, 0, 0, 24))
+        qkv_weight_padded = torch.cat([qkv_weight_first_half_padded, qkv_weight_second_half_padded], dim=2)
+        qkv_weight_final = qkv_weight_padded.reshape(self.num_attention_heads_per_partition * 128 * 3, self.embed_dim)
+        qkv_bias = self.pad_bias(self.qkv.bias)
+        self.qkv.weight.data = qkv_weight_final
+        self.qkv.bias = nn.Parameter(qkv_bias)
+        out_weight = self.proj.weight.data
+        out_weight = torch.nn.functional.pad(
+                                            out_weight.reshape(self.embed_dim, self.num_attention_heads_per_partition * 2, 40), (0, 24, 0, 0)
+                                        ).reshape(self.embed_dim, self.num_attention_heads_per_partition * 128)
+        self.proj.weight.data = out_weight
 
     def forward(
         self,
@@ -64,6 +95,8 @@ class CustomQwen2VisionAttention(Qwen2VisionAttention):
         rotary_pos_emb: torch.Tensor,
     ) -> torch.Tensor:
 
+        if not hasattr(self.qkv, 'update'):
+            self.pad_linear()
         self.cu_seqlens = cu_seqlens
 
         # [s, b, c] --> [s, b, 3 * head * head_dim]
@@ -76,9 +109,26 @@ class CustomQwen2VisionAttention(Qwen2VisionAttention):
         q, k, v = [
             rearrange(x, "s b ... -> b s ...").contiguous() for x in (q, k, v)
         ]
+
+        interleaved = False
         if rotary_pos_emb is not None:
-            q = apply_rotary_pos_emb_vision(q, rotary_pos_emb)
-            k = apply_rotary_pos_emb_vision(k, rotary_pos_emb)
+            cos = rotary_pos_emb.cos() # [seqlen, rotary_dim / 2]
+            sin = rotary_pos_emb.sin()
+            cos = torch.nn.functional.pad(cos, (0, 24))
+            sin = torch.nn.functional.pad(sin, (0, 24))
+
+            if not interleaved:
+                cos_new = torch.cat((cos, cos), dim=-1)
+                sin_new = torch.cat((sin, sin), dim=-1)
+            else:
+                cos_new = rearrange(torch.stack((cos,cos), dim=-1), "... d two -> ...(d two)", two=2)
+                sin_new = rearrange(torch.stack((sin,sin), dim=-1), "... d two -> ...(d two)", two=2)
+
+            cos_new = cos_new.reshape(1, -1, 1, self.hidden_size_per_attention_head)
+            sin_new = sin_new.reshape(1, -1, 1, self.hidden_size_per_attention_head)
+            q = torch_npu.npu_rotary_mul(q, cos_new, sin_new)
+            k = torch_npu.npu_rotary_mul(k, cos_new, sin_new)
+
         q, k, v = [
             rearrange(x, "b s h d -> (b s) h d").contiguous()
             for x in (q, k, v)
