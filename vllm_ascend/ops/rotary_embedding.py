@@ -76,7 +76,7 @@ def mrope_forward(
     return query, key
 
 
-def rope_deepseek_forward(
+def rope_deepseek_forward_oot(
     self,
     positions: torch.Tensor,
     query: torch.Tensor,
