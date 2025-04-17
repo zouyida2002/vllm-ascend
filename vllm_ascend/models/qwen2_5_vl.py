@@ -15,24 +15,20 @@ from vllm.model_executor.layers.quantization import QuantizationConfig
 from vllm.model_executor.models.utils import maybe_prefix
 from vllm.multimodal import MULTIMODAL_REGISTRY
 from vllm.model_executor.models.qwen2_5_vl import (
-        Qwen2_5_VLMultiModalProcessor, Qwen2_5_VLProcessingInfo,
-        Qwen2_5_VLDummyInputsBuilder, Qwen2_5_VisionPatchMerger,
-)
+    Qwen2_5_VLMultiModalProcessor, Qwen2_5_VLProcessingInfo,
+    Qwen2_5_VLDummyInputsBuilder, Qwen2_5_VisionPatchMerger,
+    Qwen2_5_VisionAttention, Qwen2_5_VisionBlock, Qwen2_5_VisionPatchEmbed,
+    Qwen2_5_VisionTransformer, Qwen2_5_VLForConditionalGeneration)
 
 from transformers.models.qwen2_5_vl.configuration_qwen2_5_vl import (
     Qwen2_5_VLConfig, Qwen2_5_VLVisionConfig)
-from vllm.model_executor.models.qwen2_5_vl import (
-    Qwen2_5_VisionAttention, Qwen2_5_VisionBlock,
-    Qwen2_5_VisionPatchEmbed, Qwen2_5_VisionTransformer,
-    Qwen2_5_VLForConditionalGeneration
-)
-
 
 MIN_PAD_SIZE = 64
 MAX_PAD_SIZE = 128
 
 
 class CustomQwen2_5_VisionAttention(Qwen2_5_VisionAttention):
+
     def __init__(
         self,
         embed_dim: int,
@@ -51,10 +47,16 @@ class CustomQwen2_5_VisionAttention(Qwen2_5_VisionAttention):
         self.embed_dim = embed_dim
 
     def pad_bias(self, bias):
-        first_half = bias.reshape(-1, 3, self.hidden_size_per_attention_head)[:, :, :self.linear_num_half]
-        second_half = bias.reshape(-1, 3, self.hidden_size_per_attention_head)[:, :, self.linear_num_half:]
-        first_half_padded = torch.nn.functional.pad(first_half, (0, self.linear_pad_num_half))
-        second_half_padded = torch.nn.functional.pad(second_half, (0, self.linear_pad_num_half))
+        first_half = bias.reshape(
+            -1, 3,
+            self.hidden_size_per_attention_head)[:, :, :self.linear_num_half]
+        second_half = bias.reshape(
+            -1, 3, self.hidden_size_per_attention_head)[:, :,
+                                                        self.linear_num_half:]
+        first_half_padded = torch.nn.functional.pad(
+            first_half, (0, self.linear_pad_num_half))
+        second_half_padded = torch.nn.functional.pad(
+            second_half, (0, self.linear_pad_num_half))
         bias_padded = torch.cat([first_half_padded, second_half_padded], dim=2)
         bias_final = bias_padded.reshape(-1)
         return bias_final
@@ -63,28 +65,30 @@ class CustomQwen2_5_VisionAttention(Qwen2_5_VisionAttention):
         self.qkv.update = True
         if not hasattr(self.qkv, 'linear_num_half'):
             self.linear_num_half = self.hidden_size_per_attention_head // 2
-            self.linear_pad_num_half = (MAX_PAD_SIZE - self.hidden_size_per_attention_head) // 2
-        qkv_weight_first_half = self.qkv.weight.data.reshape(-1,
-                                                            3,
-                                                            self.hidden_size_per_attention_head,
-                                                            self.embed_dim)[:, :, :self.linear_num_half, :]
-        qkv_weight_second_half = self.qkv.weight.data.reshape(-1,
-                                                            3,
-                                                            self.hidden_size_per_attention_head,
-                                                            self.embed_dim)[:, :, self.linear_num_half:, :]
+            self.linear_pad_num_half = (
+                MAX_PAD_SIZE - self.hidden_size_per_attention_head) // 2
+        qkv_weight_first_half = self.qkv.weight.data.reshape(
+            -1, 3, self.hidden_size_per_attention_head,
+            self.embed_dim)[:, :, :self.linear_num_half, :]
+        qkv_weight_second_half = self.qkv.weight.data.reshape(
+            -1, 3, self.hidden_size_per_attention_head,
+            self.embed_dim)[:, :, self.linear_num_half:, :]
 
-        qkv_weight_first_half_padded = torch.nn.functional.pad(qkv_weight_first_half, (0, 0, 0, self.linear_pad_num_half))
-        qkv_weight_second_half_padded = torch.nn.functional.pad(qkv_weight_second_half, (0, 0, 0, self.linear_pad_num_half))
-        qkv_weight_padded = torch.cat([qkv_weight_first_half_padded, qkv_weight_second_half_padded], dim=2)
+        qkv_weight_first_half_padded = torch.nn.functional.pad(
+            qkv_weight_first_half, (0, 0, 0, self.linear_pad_num_half))
+        qkv_weight_second_half_padded = torch.nn.functional.pad(
+            qkv_weight_second_half, (0, 0, 0, self.linear_pad_num_half))
+        qkv_weight_padded = torch.cat(
+            [qkv_weight_first_half_padded, qkv_weight_second_half_padded],
+            dim=2)
         qkv_weight_final = qkv_weight_padded.reshape(-1, self.embed_dim)
         qkv_bias = self.pad_bias(self.qkv.bias)
         self.qkv.weight.data = qkv_weight_final
         self.qkv.bias = nn.Parameter(qkv_bias)
         out_weight = self.proj.weight.data
         out_weight = torch.nn.functional.pad(
-                                            out_weight.reshape(self.embed_dim, -1, self.linear_num_half),
-                                            (0, self.linear_pad_num_half, 0, 0)
-                                        ).reshape(self.embed_dim, -1)
+            out_weight.reshape(self.embed_dim, -1, self.linear_num_half),
+            (0, self.linear_pad_num_half, 0, 0)).reshape(self.embed_dim, -1)
         self.hidden_size_per_attention_head = MAX_PAD_SIZE
         self.proj.weight.data = out_weight
 
@@ -108,7 +112,7 @@ class CustomQwen2_5_VisionAttention(Qwen2_5_VisionAttention):
         q, k, v = (rearrange(x, "s b ... -> b s ...").contiguous()
                    for x in (q, k, v))
         if rotary_pos_emb is not None:
-            cos = rotary_pos_emb.cos() # [seqlen, rotary_dim / 2]
+            cos = rotary_pos_emb.cos()  # [seqlen, rotary_dim / 2]
             sin = rotary_pos_emb.sin()
             cos = torch.nn.functional.pad(cos, (0, 24))
             sin = torch.nn.functional.pad(sin, (0, 24))
@@ -118,10 +122,16 @@ class CustomQwen2_5_VisionAttention(Qwen2_5_VisionAttention):
                 cos_new = torch.cat((cos, cos), dim=-1)
                 sin_new = torch.cat((sin, sin), dim=-1)
             else:
-                cos_new = rearrange(torch.stack((cos, cos), dim=-1), "... d two -> ...(d two)", two=2)
-                sin_new = rearrange(torch.stack((sin, sin), dim=-1), "... d two -> ...(d two)", two=2)
-            cos_new = cos_new.reshape(1, -1, 1, self.hidden_size_per_attention_head)
-            sin_new = sin_new.reshape(1, -1, 1, self.hidden_size_per_attention_head)
+                cos_new = rearrange(torch.stack((cos, cos), dim=-1),
+                                    "... d two -> ...(d two)",
+                                    two=2)
+                sin_new = rearrange(torch.stack((sin, sin), dim=-1),
+                                    "... d two -> ...(d two)",
+                                    two=2)
+            cos_new = cos_new.reshape(1, -1, 1,
+                                      self.hidden_size_per_attention_head)
+            sin_new = sin_new.reshape(1, -1, 1,
+                                      self.hidden_size_per_attention_head)
             q = torch_npu.npu_rotary_mul(q, cos_new, sin_new)
             k = torch_npu.npu_rotary_mul(k, cos_new, sin_new)
 
@@ -152,6 +162,7 @@ class CustomQwen2_5_VisionAttention(Qwen2_5_VisionAttention):
 
 
 class CustomQwen2_5_VisionBlock(Qwen2_5_VisionBlock):
+
     def __init__(
         self,
         dim: int,
@@ -162,31 +173,25 @@ class CustomQwen2_5_VisionBlock(Qwen2_5_VisionBlock):
         quant_config: Optional[QuantizationConfig] = None,
         prefix: str = "",
     ) -> None:
-        super().__init__(
-            dim,
-            num_heads,
-            mlp_hidden_dim,
-            act_fn,
-            norm_layer,
-            quant_config,
-            prefix
-        )
+        super().__init__(dim, num_heads, mlp_hidden_dim, act_fn, norm_layer,
+                         quant_config, prefix)
         self.attn = CustomQwen2_5_VisionAttention(embed_dim=dim,
-                                                num_heads=num_heads,
-                                                projection_size=dim,
-                                                quant_config=quant_config,
-                                                prefix=f"{prefix}.attn")
+                                                  num_heads=num_heads,
+                                                  projection_size=dim,
+                                                  quant_config=quant_config,
+                                                  prefix=f"{prefix}.attn")
 
 
 class CustomQwen2_5_VisionPatchEmbed(Qwen2_5_VisionPatchEmbed):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = x.matmul(
-            self.proj.weight.data.view(self.hidden_size, -1).transpose(0, 1)
-        )
+            self.proj.weight.data.view(self.hidden_size, -1).transpose(0, 1))
         return x
 
+
 class CustomQwen2_5_VisionPatchMerger(Qwen2_5_VisionPatchMerger):
+
     def __init__(
         self,
         d_model: int,
@@ -196,14 +201,8 @@ class CustomQwen2_5_VisionPatchMerger(Qwen2_5_VisionPatchMerger):
         quant_config: Optional[QuantizationConfig] = None,
         prefix: str = "",
     ) -> None:
-        super().__init__(
-            d_model,
-            context_dim,
-            norm_layer,
-            spatial_merge_size,
-            quant_config,
-            prefix
-        )
+        super().__init__(d_model, context_dim, norm_layer, spatial_merge_size,
+                         quant_config, prefix)
 
 
 class CustomQwen2_5_VisionTransformer(Qwen2_5_VisionTransformer):
@@ -215,13 +214,8 @@ class CustomQwen2_5_VisionTransformer(Qwen2_5_VisionTransformer):
         quant_config: Optional[QuantizationConfig] = None,
         prefix: str = "",
     ) -> None:
-        super().__init__(
-            vision_config,
-            norm_eps,
-            quant_config,
-            prefix
-        )
-        norm_layer=partial(RMSNorm, eps=norm_eps)
+        super().__init__(vision_config, norm_eps, quant_config, prefix)
+        norm_layer = partial(RMSNorm, eps=norm_eps)
         self.patch_embed = CustomQwen2_5_VisionPatchEmbed(
             patch_size=vision_config.patch_size,
             temporal_patch_size=vision_config.temporal_patch_size,
@@ -281,7 +275,8 @@ class CustomQwen2_5_VisionTransformer(Qwen2_5_VisionTransformer):
 
         # compute cu_seqlens
         cu_seqlens = torch.repeat_interleave(grid_thw[:, 1] * grid_thw[:, 2],
-                                             grid_thw[:, 0]).cpu().to(torch.int32)
+                                             grid_thw[:,
+                                                      0]).cpu().to(torch.int32)
 
         # transformers
         hidden_states = hidden_states.unsqueeze(1)
@@ -301,11 +296,13 @@ class CustomQwen2_5_VisionTransformer(Qwen2_5_VisionTransformer):
 
         return hidden_states
 
+
 @MULTIMODAL_REGISTRY.register_processor(
     Qwen2_5_VLMultiModalProcessor,
     info=Qwen2_5_VLProcessingInfo,
     dummy_inputs=Qwen2_5_VLDummyInputsBuilder)
-class CustomQwen2_5_VLForConditionalGeneration(Qwen2_5_VLForConditionalGeneration):
+class CustomQwen2_5_VLForConditionalGeneration(
+        Qwen2_5_VLForConditionalGeneration):
 
     def __init__(self, *, vllm_config: VllmConfig, prefix: str = ""):
         super().__init__(vllm_config=vllm_config, prefix=prefix)

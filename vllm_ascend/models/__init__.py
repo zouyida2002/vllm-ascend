@@ -10,7 +10,8 @@ def register_model():
 
     ModelRegistry.register_model(
         "Qwen2_5_VLForConditionalGeneration",
-        "vllm_ascend.models.qwen2_5_vl:CustomQwen2_5_VLForConditionalGeneration")
+        "vllm_ascend.models.qwen2_5_vl:CustomQwen2_5_VLForConditionalGeneration"
+    )
 
     ModelRegistry.register_model(
         "DeepseekV2ForCausalLM",

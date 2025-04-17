@@ -53,12 +53,12 @@ def rope_forward_oot(
     return query, key
 
 
-def mrope_forward_oot(
-        self,
-        positions: torch.Tensor,
-        query: torch.Tensor,
-        key: torch.Tensor,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+def mrope_forward(
+    self,
+    positions: torch.Tensor,
+    query: torch.Tensor,
+    key: torch.Tensor,
+) -> Tuple[torch.Tensor, torch.Tensor]:
     import torch_npu
 
     if positions.ndim == 1:
