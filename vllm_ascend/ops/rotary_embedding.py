@@ -19,7 +19,7 @@ from typing import Optional, Tuple
 
 import torch
 from vllm.model_executor.layers.rotary_embedding import (
-    DeepseekScalingRotaryEmbedding, RotaryEmbedding)
+    DeepseekScalingRotaryEmbedding, MRotaryEmbedding, RotaryEmbedding)
 
 
 def rope_forward_oot(
@@ -53,7 +53,30 @@ def rope_forward_oot(
     return query, key
 
 
-def rope_deepseek_forward_oot(
+def mrope_forward_oot(
+        self,
+        positions: torch.Tensor,
+        query: torch.Tensor,
+        key: torch.Tensor,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    import torch_npu
+
+    if positions.ndim == 1:
+        tmp_mrope_section = self.mrope_section
+        self.mrope_section = [0, 0, 0]
+    query, key = torch_npu.npu_mrope(positions,
+                                     query.contiguous(),
+                                     key.contiguous(),
+                                     self.cos_sin_cache.contiguous(),
+                                     self.head_size,
+                                     mrope_section=self.mrope_section,
+                                     rotary_mode='half')
+    if positions.ndim == 1:
+        self.mrope_section = tmp_mrope_section
+    return query, key
+
+
+def rope_deepseek_forward(
     self,
     positions: torch.Tensor,
     query: torch.Tensor,
@@ -89,4 +112,5 @@ def rope_deepseek_forward_oot(
 
 
 RotaryEmbedding.forward_oot = rope_forward_oot
+MRotaryEmbedding.forward = mrope_forward
 DeepseekScalingRotaryEmbedding.forward = rope_deepseek_forward_oot
