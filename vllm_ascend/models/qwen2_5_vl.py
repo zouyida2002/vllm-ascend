@@ -141,6 +141,7 @@ class CustomQwen2_5_VisionBlock(Qwen2_5_VisionBlock):
         x = x + self.mlp(self.norm2(x))
         return x
 
+
 class CustomQwen2_5_VisionPatchEmbed(Qwen2_5_VisionPatchEmbed):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
