@@ -20,8 +20,7 @@ from typing import Optional, Tuple
 
 import torch
 from vllm.model_executor.layers.rotary_embedding import (
-    DeepseekScalingRotaryEmbedding, MRotaryEmbedding,
-    RotaryEmbedding)
+    DeepseekScalingRotaryEmbedding, MRotaryEmbedding, RotaryEmbedding)
 
 from vllm_ascend.platform import CUSTOM_OP_ENABLED
 

@@ -35,9 +35,9 @@ from vllm.model_executor.models.utils import maybe_prefix
 from vllm.multimodal import MULTIMODAL_REGISTRY
 from vllm.model_executor.models.qwen2_5_vl import (
     Qwen2_5_VLMultiModalProcessor, Qwen2_5_VLProcessingInfo,
-    Qwen2_5_VLDummyInputsBuilder, Qwen2_5_VisionAttention,
-    Qwen2_5_VisionBlock, Qwen2_5_VisionPatchEmbed,
-    Qwen2_5_VisionTransformer, Qwen2_5_VLForConditionalGeneration)
+    Qwen2_5_VLDummyInputsBuilder, Qwen2_5_VisionAttention, Qwen2_5_VisionBlock,
+    Qwen2_5_VisionPatchEmbed, Qwen2_5_VisionTransformer,
+    Qwen2_5_VLForConditionalGeneration)
 
 from transformers.models.qwen2_5_vl.configuration_qwen2_5_vl import (
     Qwen2_5_VLConfig, Qwen2_5_VLVisionConfig)
@@ -135,10 +135,8 @@ class CustomQwen2_5_VisionBlock(Qwen2_5_VisionBlock):
 
     def forward(self, x: torch.Tensor, cu_seqlens: torch.Tensor,
                 cos: torch.Tensor, sin: torch.Tensor) -> torch.Tensor:
-        x = x + self.attn(self.norm1(x),
-                          cu_seqlens=cu_seqlens,
-                          cos=cos,
-                          sin=sin)
+        x = x + self.attn(
+            self.norm1(x), cu_seqlens=cu_seqlens, cos=cos, sin=sin)
 
         x = x + self.mlp(self.norm2(x))
         return x
@@ -187,14 +185,17 @@ class CustomQwen2_5_VisionTransformer(Qwen2_5_VisionTransformer):
         if self.hidden_size_per_attention_head > MIN_PAD_SIZE and self.hidden_size_per_attention_head < MAX_PAD_SIZE:
             self.origin_hidden_size_per_attention_head = self.hidden_size_per_attention_head
             self.half_origin_hidden_size_per_attention_head = self.hidden_size_per_attention_head // 2
-            self.half_pad_hidden_size_per_attention_head = (MAX_PAD_SIZE - self.hidden_size_per_attention_head) // 2
+            self.half_pad_hidden_size_per_attention_head = (
+                MAX_PAD_SIZE - self.hidden_size_per_attention_head) // 2
             self.hidden_size_per_attention_head = MAX_PAD_SIZE
 
     def cal_cos_sin(self, rotary_pos_emb):
         cos = rotary_pos_emb.cos()  # [seqlen, rotary_dim / 2]
         sin = rotary_pos_emb.sin()
-        cos = torch.nn.functional.pad(cos, (0, self.half_pad_hidden_size_per_attention_head))
-        sin = torch.nn.functional.pad(sin, (0, self.half_pad_hidden_size_per_attention_head))
+        cos = torch.nn.functional.pad(
+            cos, (0, self.half_pad_hidden_size_per_attention_head))
+        sin = torch.nn.functional.pad(
+            sin, (0, self.half_pad_hidden_size_per_attention_head))
 
         interleaved = False
         if not interleaved:
@@ -208,15 +209,18 @@ class CustomQwen2_5_VisionTransformer(Qwen2_5_VisionTransformer):
                                 "... d two -> ...(d two)",
                                 two=2)
         cos_new = cos_new.reshape(1, -1, 1,
-                                    self.hidden_size_per_attention_head)
+                                  self.hidden_size_per_attention_head)
         sin_new = sin_new.reshape(1, -1, 1,
-                                    self.hidden_size_per_attention_head)
+                                  self.hidden_size_per_attention_head)
         return cos_new, sin_new
 
     def pad_qkv_bias(self, bias):
-        first_half = bias.reshape(-1, 3, self.origin_hidden_size_per_attention_head)[:, :, :self.half_origin_hidden_size_per_attention_head]
+        first_half = bias.reshape(
+            -1, 3, self.origin_hidden_size_per_attention_head
+        )[:, :, :self.half_origin_hidden_size_per_attention_head]
         second_half = bias.reshape(
-            -1, 3, self.origin_hidden_size_per_attention_head)[:, :,self.half_origin_hidden_size_per_attention_head:]
+            -1, 3, self.origin_hidden_size_per_attention_head
+        )[:, :, self.half_origin_hidden_size_per_attention_head:]
         first_half_padded = torch.nn.functional.pad(
             first_half, (0, self.half_pad_hidden_size_per_attention_head))
         second_half_padded = torch.nn.functional.pad(
@@ -224,19 +228,21 @@ class CustomQwen2_5_VisionTransformer(Qwen2_5_VisionTransformer):
         bias_padded = torch.cat([first_half_padded, second_half_padded], dim=2)
         bias_final = bias_padded.reshape(-1)
         return bias_final
-    
+
     def pad_qkv_weight(self, data):
         qkv_weight_first_half = data.reshape(
-            -1, 3, self.origin_hidden_size_per_attention_head,
-            self.hidden_size)[:, :, :self.half_origin_hidden_size_per_attention_head, :]
+            -1, 3, self.origin_hidden_size_per_attention_head, self.hidden_size
+        )[:, :, :self.half_origin_hidden_size_per_attention_head, :]
         qkv_weight_second_half = data.reshape(
-            -1, 3, self.origin_hidden_size_per_attention_head,
-            self.hidden_size)[:, :, self.half_origin_hidden_size_per_attention_head:, :]
+            -1, 3, self.origin_hidden_size_per_attention_head, self.hidden_size
+        )[:, :, self.half_origin_hidden_size_per_attention_head:, :]
 
         qkv_weight_first_half_padded = torch.nn.functional.pad(
-            qkv_weight_first_half, (0, 0, 0, self.half_pad_hidden_size_per_attention_head))
+            qkv_weight_first_half,
+            (0, 0, 0, self.half_pad_hidden_size_per_attention_head))
         qkv_weight_second_half_padded = torch.nn.functional.pad(
-            qkv_weight_second_half, (0, 0, 0, self.half_pad_hidden_size_per_attention_head))
+            qkv_weight_second_half,
+            (0, 0, 0, self.half_pad_hidden_size_per_attention_head))
         qkv_weight_padded = torch.cat(
             [qkv_weight_first_half_padded, qkv_weight_second_half_padded],
             dim=2)
@@ -245,8 +251,10 @@ class CustomQwen2_5_VisionTransformer(Qwen2_5_VisionTransformer):
 
     def pad_proj_weight(self, data):
         out_weight = torch.nn.functional.pad(
-            data.reshape(self.hidden_size, -1, self.half_origin_hidden_size_per_attention_head),
-            (0, self.half_pad_hidden_size_per_attention_head, 0, 0)).reshape(self.hidden_size, -1)
+            data.reshape(self.hidden_size, -1,
+                         self.half_origin_hidden_size_per_attention_head),
+            (0, self.half_pad_hidden_size_per_attention_head, 0, 0)).reshape(
+                self.hidden_size, -1)
         return out_weight
 
     def load_weights(self, weights: Iterable[Tuple[str,
@@ -275,14 +283,13 @@ class CustomQwen2_5_VisionTransformer(Qwen2_5_VisionTransformer):
                                         default_weight_loader)
                 weight_loader(param, loaded_weight)
                 if ("attn.proj.weight" in name):
-                    param.data=self.pad_proj_weight(param.data)
+                    param.data = self.pad_proj_weight(param.data)
                 if ("attn.qkv.weight" in name):
-                    param.data=self.pad_qkv_weight(param.data)
+                    param.data = self.pad_qkv_weight(param.data)
                 if ("attn.qkv.bias" in name):
-                    param.data=self.pad_qkv_bias(param.data)
+                    param.data = self.pad_qkv_bias(param.data)
             loaded_params.add(name)
         return loaded_params
-
 
     def forward(
         self,
@@ -291,8 +298,8 @@ class CustomQwen2_5_VisionTransformer(Qwen2_5_VisionTransformer):
     ) -> torch.Tensor:
         # compute cu_seqlens
         cu_seqlens = torch.repeat_interleave(grid_thw[:, 1] * grid_thw[:, 2],
-                                        grid_thw[:,
-                                                0]).cpu().to(torch.int32)
+                                             grid_thw[:,
+                                                      0]).cpu().to(torch.int32)
 
         # patchify
         x = self.patch_embed(x)
@@ -309,8 +316,8 @@ class CustomQwen2_5_VisionTransformer(Qwen2_5_VisionTransformer):
         cu_window_seqlens = torch.unique_consecutive(cu_window_seqlens)
         cu_window_seqlens = torch.diff(cu_window_seqlens).cpu().to(torch.int32)
         seq_len, _ = x.size()
-        x = x.reshape(
-            seq_len // self.spatial_merge_unit, self.spatial_merge_unit, -1)
+        x = x.reshape(seq_len // self.spatial_merge_unit,
+                      self.spatial_merge_unit, -1)
         x = x[window_index, :, :]
         x = x.reshape(seq_len, -1)
         rotary_pos_emb = rotary_pos_emb.reshape(
@@ -327,10 +334,7 @@ class CustomQwen2_5_VisionTransformer(Qwen2_5_VisionTransformer):
                 cu_seqlens_now = cu_seqlens
             else:
                 cu_seqlens_now = cu_window_seqlens
-            x = blk(x,
-                    cu_seqlens=cu_seqlens_now,
-                    cos=cos,
-                    sin=sin)
+            x = blk(x, cu_seqlens=cu_seqlens_now, cos=cos, sin=sin)
 
         # adapter
         x = self.merger(x)
