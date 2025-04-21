@@ -65,6 +65,8 @@ class CustomQwen2_5_VisionAttention(Qwen2_5_VisionAttention):
             prefix,
         )
         self.embed_dim = embed_dim
+        self.hidden_size_per_attention_head = dist_utils.divide(
+            projection_size, num_heads)
         if self.hidden_size_per_attention_head > MIN_PAD_SIZE and self.hidden_size_per_attention_head < MAX_PAD_SIZE:
             self.hidden_size_per_attention_head = MAX_PAD_SIZE
 
