@@ -18,30 +18,29 @@
 # limitations under the License.
 
 from functools import partial
-from typing import Callable, Optional, Iterable, Tuple, Set
+from typing import Callable, Iterable, Optional, Set, Tuple
+
 import torch
-import torch_npu
 import torch.nn as nn
 import torch.nn.functional as F
+import torch_npu
 from einops import rearrange
+from transformers.models.qwen2_5_vl.configuration_qwen2_5_vl import (
+    Qwen2_5_VLConfig, Qwen2_5_VLVisionConfig)
+from vllm.config import VllmConfig
 from vllm.distributed import parallel_state
 from vllm.distributed import utils as dist_utils
-
-from vllm.config import VllmConfig
 from vllm.model_executor.layers.activation import _ACTIVATION_REGISTRY
 from vllm.model_executor.layers.layernorm import RMSNorm
 from vllm.model_executor.layers.quantization import QuantizationConfig
+from vllm.model_executor.model_loader.weight_utils import default_weight_loader
+from vllm.model_executor.models.qwen2_5_vl import (
+    Qwen2_5_VisionAttention, Qwen2_5_VisionBlock, Qwen2_5_VisionPatchEmbed,
+    Qwen2_5_VisionTransformer, Qwen2_5_VLDummyInputsBuilder,
+    Qwen2_5_VLForConditionalGeneration, Qwen2_5_VLMultiModalProcessor,
+    Qwen2_5_VLProcessingInfo)
 from vllm.model_executor.models.utils import maybe_prefix
 from vllm.multimodal import MULTIMODAL_REGISTRY
-from vllm.model_executor.models.qwen2_5_vl import (
-    Qwen2_5_VLMultiModalProcessor, Qwen2_5_VLProcessingInfo,
-    Qwen2_5_VLDummyInputsBuilder, Qwen2_5_VisionAttention, Qwen2_5_VisionBlock,
-    Qwen2_5_VisionPatchEmbed, Qwen2_5_VisionTransformer,
-    Qwen2_5_VLForConditionalGeneration)
-
-from transformers.models.qwen2_5_vl.configuration_qwen2_5_vl import (
-    Qwen2_5_VLConfig, Qwen2_5_VLVisionConfig)
-from vllm.model_executor.model_loader.weight_utils import default_weight_loader
 
 MIN_PAD_SIZE = 64
 MAX_PAD_SIZE = 128
