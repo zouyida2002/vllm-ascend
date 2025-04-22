@@ -21,6 +21,7 @@ import torch
 from vllm.model_executor.layers.rotary_embedding import (
     DeepseekScalingRotaryEmbedding, MRotaryEmbedding, RotaryEmbedding)
 
+
 def rope_forward_oot(
     self,
     positions: torch.Tensor,
