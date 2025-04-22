@@ -18,6 +18,7 @@
 import torch
 from vllm.model_executor.layers.activation import QuickGELU, SiluAndMul
 
+
 def silu_and_mul_forward_oot(self, x: torch.Tensor) -> torch.Tensor:
     import torch_npu
 
