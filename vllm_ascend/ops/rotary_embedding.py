@@ -234,25 +234,20 @@ def mrope_forward(
     key: torch.Tensor,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     import torch_npu
-    if positions.ndim == 1:
-        self.stored_mrope_section = self.mrope_section
-        self.mrope_section = [0, 0, 0]
+    mrope_section = [0, 0, 0] if positions.ndim == 1 else self.mrope_section
     query, key = torch_npu.npu_mrope(positions,
                                      query.contiguous(),
                                      key.contiguous(),
                                      self.cos_sin_cache.contiguous(),
                                      self.head_size,
-                                     mrope_section=self.mrope_section,
+                                     mrope_section=mrope_section,
                                      rotary_mode='half')
-    if positions.ndim == 1:
-        self.mrope_section = self.stored_mrope_section
     return query, key
 
 
 # TODO: Patch when aclnn ops avaiable
 RotaryEmbedding.forward_oot = rope_forward_oot
 MRotaryEmbedding.forward = mrope_forward
-# DeepseekScalingRotaryEmbedding.forward = rope_deepseek_forward_oot
 DeepseekScalingRotaryEmbedding.forward = native_rope_deepseek_forward
 DeepseekScalingRotaryEmbedding._set_cos_sin_cache = _set_cos_sin_cache
 DeepseekScalingRotaryEmbedding.max_seq_len_cached = None
