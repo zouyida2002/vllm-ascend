@@ -46,7 +46,7 @@ MIN_PAD_SIZE = 64
 MAX_PAD_SIZE = 128
 
 
-class CustomQwen2_5_VisionAttention(Qwen2_5_VisionAttention):
+class AscendQwen2_5_VisionAttention(Qwen2_5_VisionAttention):
 
     def __init__(
         self,
@@ -114,7 +114,7 @@ class CustomQwen2_5_VisionAttention(Qwen2_5_VisionAttention):
         return output
 
 
-class CustomQwen2_5_VisionBlock(Qwen2_5_VisionBlock):
+class AscendQwen2_5_VisionBlock(Qwen2_5_VisionBlock):
 
     def __init__(
         self,
@@ -128,7 +128,7 @@ class CustomQwen2_5_VisionBlock(Qwen2_5_VisionBlock):
     ) -> None:
         super().__init__(dim, num_heads, mlp_hidden_dim, act_fn, norm_layer,
                          quant_config, prefix)
-        self.attn = CustomQwen2_5_VisionAttention(embed_dim=dim,
+        self.attn = AscendQwen2_5_VisionAttention(embed_dim=dim,
                                                   num_heads=num_heads,
                                                   projection_size=dim,
                                                   quant_config=quant_config,
@@ -143,7 +143,7 @@ class CustomQwen2_5_VisionBlock(Qwen2_5_VisionBlock):
         return x
 
 
-class CustomQwen2_5_VisionPatchEmbed(Qwen2_5_VisionPatchEmbed):
+class AscendQwen2_5_VisionPatchEmbed(Qwen2_5_VisionPatchEmbed):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = x.matmul(
@@ -151,7 +151,7 @@ class CustomQwen2_5_VisionPatchEmbed(Qwen2_5_VisionPatchEmbed):
         return x
 
 
-class CustomQwen2_5_VisionTransformer(Qwen2_5_VisionTransformer):
+class AscendQwen2_5_VisionTransformer(Qwen2_5_VisionTransformer):
 
     def __init__(
         self,
@@ -164,14 +164,14 @@ class CustomQwen2_5_VisionTransformer(Qwen2_5_VisionTransformer):
         super().__init__(vision_config, norm_eps, quant_config, prefix)
         norm_layer = partial(RMSNorm, eps=norm_eps)
         self.interleaved = interleaved
-        self.patch_embed = CustomQwen2_5_VisionPatchEmbed(
+        self.patch_embed = AscendQwen2_5_VisionPatchEmbed(
             patch_size=vision_config.patch_size,
             temporal_patch_size=vision_config.temporal_patch_size,
             in_channels=vision_config.in_channels,
             hidden_size=self.hidden_size,
         )
         self.blocks = nn.ModuleList([
-            CustomQwen2_5_VisionBlock(
+            AscendQwen2_5_VisionBlock(
                 dim=self.hidden_size,
                 num_heads=self.num_heads,
                 mlp_hidden_dim=vision_config.intermediate_size,
@@ -350,14 +350,14 @@ class CustomQwen2_5_VisionTransformer(Qwen2_5_VisionTransformer):
     Qwen2_5_VLMultiModalProcessor,
     info=Qwen2_5_VLProcessingInfo,
     dummy_inputs=Qwen2_5_VLDummyInputsBuilder)
-class CustomQwen2_5_VLForConditionalGeneration(
+class AscendQwen2_5_VLForConditionalGeneration(
         Qwen2_5_VLForConditionalGeneration):
 
     def __init__(self, *, vllm_config: VllmConfig, prefix: str = ""):
         super().__init__(vllm_config=vllm_config, prefix=prefix)
         config: Qwen2_5_VLConfig = vllm_config.model_config.hf_config
         quant_config = vllm_config.quant_config
-        self.visual = CustomQwen2_5_VisionTransformer(
+        self.visual = AscendQwen2_5_VisionTransformer(
             vision_config=config.vision_config,
             norm_eps=getattr(config, "rms_norm_eps", 1e-6),
             quant_config=self._maybe_ignore_quant_config(quant_config),
